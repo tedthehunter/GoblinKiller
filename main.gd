@@ -3,9 +3,12 @@ extends Node2D
 const GRID_SIZE := 80
 const WORLD_SEED := 48271
 const CAMERA_LIMIT := 2000000000
-const ACTIVE_ENEMY_TARGET := 8
+const ACTIVE_ENEMY_TARGET := 20
 const ENEMY_DESPAWN_DISTANCE := 1500.0
 const ENEMY_SPAWN_OFFSET := 56.0
+const BASE_GOBLIN_SPAWN_RATE := 0.45
+const GOBLIN_SPAWN_RATE_RAMP := 0.035
+const MAX_GOBLIN_SPAWN_MULTIPLIER := 10.0
 const PLAYER_MOVE_SPEED := 240.0
 const ATTACK_INPUT_BUFFER := 0.16
 const CLASS_DATA := {
@@ -39,6 +42,8 @@ var mp_bar: ProgressBar
 var class_box: VBoxContainer
 var pause_menu: PanelContainer
 var game_paused := false
+var elapsed_game_time := 0.0
+var goblin_spawn_progress := 0.0
 
 class Entity:
 	extends Node2D
@@ -236,12 +241,17 @@ func get_visible_world_rect() -> Rect2:
 	var view_center := player.position if world_camera == null else world_camera.get_screen_center_position()
 	return Rect2(view_center - viewport_size * 0.5, viewport_size)
 
-func update_world_enemies() -> void:
+func update_world_enemies(delta := 0.0) -> void:
 	for goblin in goblins.duplicate():
 		if is_instance_valid(goblin) and goblin.position.distance_to(player.position) > ENEMY_DESPAWN_DISTANCE:
 			goblins.erase(goblin)
 			goblin.queue_free()
-	while goblins.size() < ACTIVE_ENEMY_TARGET:
+	if goblins.size() >= ACTIVE_ENEMY_TARGET:
+		return
+	var spawn_multiplier := minf(1.0 + elapsed_game_time * GOBLIN_SPAWN_RATE_RAMP, MAX_GOBLIN_SPAWN_MULTIPLIER)
+	goblin_spawn_progress += BASE_GOBLIN_SPAWN_RATE * spawn_multiplier * delta
+	while goblin_spawn_progress >= 1.0 and goblins.size() < ACTIVE_ENEMY_TARGET:
+		goblin_spawn_progress -= 1.0
 		spawn_enemy_at_viewport_edge()
 
 func spawn_enemy_at_viewport_edge() -> void:
@@ -377,6 +387,7 @@ func update_attacks(delta: float) -> void:
 func _process(delta: float) -> void:
 	if player == null: return
 	if game_paused: return
+	elapsed_game_time += delta
 	if Input.is_key_pressed(KEY_R) and player.health <= 0.0:
 		get_tree().reload_current_scene()
 		return
@@ -404,7 +415,7 @@ func _process(delta: float) -> void:
 		if movement.length_squared() > 0.0:
 			travel_direction = movement.normalized()
 			player.position += travel_direction * PLAYER_MOVE_SPEED * delta
-		update_world_enemies()
+		update_world_enemies(delta)
 	update_attacks(delta)
 	for goblin in goblins:
 		var direction := goblin.position.direction_to(player.position)
