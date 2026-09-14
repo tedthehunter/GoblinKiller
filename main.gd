@@ -1,6 +1,13 @@
 extends Node2D
 
-const ARENA := Rect2(32, 86, 896, 410)
+const GRID_SIZE := 80
+const WORLD_SEED := 48271
+const CAMERA_LIMIT := 2000000000
+const ACTIVE_ENEMY_TARGET := 8
+const ENEMY_DESPAWN_DISTANCE := 1500.0
+const ENEMY_SPAWN_OFFSET := 56.0
+const PLAYER_MOVE_SPEED := 240.0
+const ATTACK_INPUT_BUFFER := 0.16
 const CLASS_DATA := {
 	"Warrior": {"health": 140.0, "mana": 0.0, "damage": 28.0, "attack_speed": 1.1, "color": Color("4f8ee8")},
 	"Mage": {"health": 80.0, "mana": 100.0, "damage": 40.0, "attack_speed": 0.75, "color": Color("9b5de5")},
@@ -14,16 +21,24 @@ const ATTACKS := {
 
 var player: Entity
 var goblins: Array[Entity] = []
+var world_camera: Camera2D
+var spawn_rng := RandomNumberGenerator.new()
+var travel_direction := Vector2.ZERO
 var selected_class := ""
 var last_attack_time := -10.0
+var buffered_attack_position := Vector2.ZERO
+var has_buffered_attack := false
 var pending_hits: Array[Dictionary] = []
 var pending_enemy_hits: Array[Dictionary] = []
 var projectiles: Array[Dictionary] = []
 var visual_effects: Array[Dictionary] = []
 var title: Label
 var status: Label
-var stats: Label
+var hp_bar: ProgressBar
+var mp_bar: ProgressBar
 var class_box: VBoxContainer
+var pause_menu: PanelContainer
+var game_paused := false
 
 class Entity:
 	extends Node2D
@@ -67,12 +82,23 @@ class Entity:
 		draw_string(ThemeDB.fallback_font, Vector2(-radius, radius + 18), entity_name, HORIZONTAL_ALIGNMENT_CENTER, radius * 2, 13, Color.WHITE)
 
 func _ready() -> void:
+	spawn_rng.seed = WORLD_SEED
 	create_interface()
 	queue_redraw()
 
 func _draw() -> void:
-	draw_rect(ARENA, Color("17202a"), true)
-	draw_rect(ARENA, Color("5c677d"), false, 2.0)
+	var viewport_size := get_viewport().get_visible_rect().size
+	var view_center := Vector2.ZERO if player == null else player.position
+	if world_camera != null:
+		view_center = world_camera.get_screen_center_position()
+	var visible_area := Rect2(view_center - viewport_size * 0.5 - Vector2(GRID_SIZE, GRID_SIZE), viewport_size + Vector2(GRID_SIZE * 2, GRID_SIZE * 2))
+	draw_rect(visible_area, Color("17202a"), true)
+	var first_x := floori(visible_area.position.x / GRID_SIZE) * GRID_SIZE
+	var first_y := floori(visible_area.position.y / GRID_SIZE) * GRID_SIZE
+	for x in range(first_x, int(visible_area.end.x) + GRID_SIZE, GRID_SIZE):
+		draw_line(Vector2(x, visible_area.position.y), Vector2(x, visible_area.end.y), Color("263746"), 1.0)
+	for y in range(first_y, int(visible_area.end.y) + GRID_SIZE, GRID_SIZE):
+		draw_line(Vector2(visible_area.position.x, y), Vector2(visible_area.end.x, y), Color("263746"), 1.0)
 	for effect in visual_effects:
 		var progress: float = 1.0 - effect.remaining / effect.duration
 		if effect.kind == "slash":
@@ -96,11 +122,15 @@ func create_interface() -> void:
 	status.position = Vector2(32, 55)
 	status.add_theme_font_size_override("font_size", 16)
 	ui.add_child(status)
-	stats = Label.new()
-	stats.position = Vector2(610, 25)
-	stats.size = Vector2(318, 55)
-	stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	ui.add_child(stats)
+	var resource_box := VBoxContainer.new()
+	resource_box.position = Vector2(700, 20)
+	resource_box.size = Vector2(228, 54)
+	resource_box.add_theme_constant_override("separation", 6)
+	hp_bar = create_resource_bar("HP", Color("e63946"))
+	mp_bar = create_resource_bar("MP", Color("3a86ff"))
+	resource_box.add_child(hp_bar)
+	resource_box.add_child(mp_bar)
+	ui.add_child(resource_box)
 	class_box = VBoxContainer.new()
 	class_box.position = Vector2(340, 175)
 	class_box.size = Vector2(280, 190)
@@ -116,58 +146,171 @@ func create_interface() -> void:
 		button.pressed.connect(start_level.bind(choice_name))
 		class_box.add_child(button)
 	ui.add_child(class_box)
+	pause_menu = PanelContainer.new()
+	pause_menu.position = Vector2(350, 150)
+	pause_menu.size = Vector2(260, 190)
+	var pause_background := StyleBoxFlat.new()
+	pause_background.bg_color = Color("20242bf2")
+	pause_background.border_color = Color("697386")
+	pause_background.set_border_width_all(2)
+	pause_background.corner_radius_top_left = 10
+	pause_background.corner_radius_top_right = 10
+	pause_background.corner_radius_bottom_left = 10
+	pause_background.corner_radius_bottom_right = 10
+	pause_menu.add_theme_stylebox_override("panel", pause_background)
+	var pause_box := VBoxContainer.new()
+	pause_box.add_theme_constant_override("separation", 12)
+	pause_menu.add_child(pause_box)
+	var pause_title := Label.new()
+	pause_title.text = "PAUSED"
+	pause_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_title.add_theme_font_size_override("font_size", 28)
+	pause_box.add_child(pause_title)
+	var resume_button := Button.new()
+	resume_button.text = "Resume  (Esc)"
+	resume_button.custom_minimum_size = Vector2(220, 42)
+	resume_button.pressed.connect(toggle_pause)
+	pause_box.add_child(resume_button)
+	var restart_button := Button.new()
+	restart_button.text = "Restart Game"
+	restart_button.custom_minimum_size = Vector2(220, 42)
+	restart_button.pressed.connect(restart_game)
+	pause_box.add_child(restart_button)
+	pause_menu.hide()
+	ui.add_child(pause_menu)
 	status.text = "Select a class to enter the arena."
+
+func create_resource_bar(resource_name: String, fill_color: Color) -> ProgressBar:
+	var bar := ProgressBar.new()
+	bar.custom_minimum_size = Vector2(228, 24)
+	bar.show_percentage = false
+	bar.tooltip_text = resource_name
+	var background := StyleBoxFlat.new()
+	background.bg_color = Color("20242b")
+	background.border_color = Color("697386")
+	background.set_border_width_all(1)
+	background.corner_radius_top_left = 4
+	background.corner_radius_top_right = 4
+	background.corner_radius_bottom_left = 4
+	background.corner_radius_bottom_right = 4
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = fill_color
+	fill.corner_radius_top_left = 3
+	fill.corner_radius_top_right = 3
+	fill.corner_radius_bottom_left = 3
+	fill.corner_radius_bottom_right = 3
+	bar.add_theme_stylebox_override("background", background)
+	bar.add_theme_stylebox_override("fill", fill)
+	return bar
 
 func start_level(choice_name: String) -> void:
 	selected_class = choice_name
 	class_box.hide()
 	player = Entity.new()
 	player.configure(choice_name, CLASS_DATA[choice_name], CLASS_DATA[choice_name].color)
-	player.position = Vector2(190, 292)
+	player.position = Vector2(480, 300)
 	add_child(player)
-	for index in range(5):
-		var goblin := Entity.new()
-		goblin.configure("Goblin %d" % (index + 1), {"health": 55.0, "mana": 0.0, "damage": 9.0, "attack_speed": 0.65}, Color("55a630"))
-		goblin.position = Vector2(680 + index * 75, 190 + index * 100)
-		add_child(goblin)
-		goblins.append(goblin)
-	status.text = "Click or press Space: %s." % ATTACKS[selected_class].name
+	configure_camera()
+	update_world_enemies()
+	status.text = "Move with WASD. Aim with the mouse; click or press Space: %s." % ATTACKS[selected_class].name
+
+func configure_camera() -> void:
+	world_camera = Camera2D.new()
+	world_camera.position_smoothing_enabled = true
+	world_camera.position_smoothing_speed = 8.0
+	world_camera.drag_horizontal_enabled = true
+	world_camera.drag_vertical_enabled = true
+	world_camera.drag_left_margin = 0.22
+	world_camera.drag_top_margin = 0.22
+	world_camera.drag_right_margin = 0.22
+	world_camera.drag_bottom_margin = 0.22
+	world_camera.limit_left = -CAMERA_LIMIT
+	world_camera.limit_top = -CAMERA_LIMIT
+	world_camera.limit_right = CAMERA_LIMIT
+	world_camera.limit_bottom = CAMERA_LIMIT
+	player.add_child(world_camera)
+	world_camera.make_current()
+
+func get_visible_world_rect() -> Rect2:
+	var viewport_size := get_viewport().get_visible_rect().size
+	var view_center := player.position if world_camera == null else world_camera.get_screen_center_position()
+	return Rect2(view_center - viewport_size * 0.5, viewport_size)
+
+func update_world_enemies() -> void:
+	for goblin in goblins.duplicate():
+		if is_instance_valid(goblin) and goblin.position.distance_to(player.position) > ENEMY_DESPAWN_DISTANCE:
+			goblins.erase(goblin)
+			goblin.queue_free()
+	while goblins.size() < ACTIVE_ENEMY_TARGET:
+		spawn_enemy_at_viewport_edge()
+
+func spawn_enemy_at_viewport_edge() -> void:
+	var view := get_visible_world_rect()
+	var position := Vector2.ZERO
+	var edge := preferred_spawn_edge()
+	match edge:
+		0: position = Vector2(view.position.x - ENEMY_SPAWN_OFFSET, spawn_rng.randf_range(view.position.y, view.end.y))
+		1: position = Vector2(view.end.x + ENEMY_SPAWN_OFFSET, spawn_rng.randf_range(view.position.y, view.end.y))
+		2: position = Vector2(spawn_rng.randf_range(view.position.x, view.end.x), view.position.y - ENEMY_SPAWN_OFFSET)
+		_: position = Vector2(spawn_rng.randf_range(view.position.x, view.end.x), view.end.y + ENEMY_SPAWN_OFFSET)
+	var goblin := Entity.new()
+	goblin.configure("Goblin", {"health": 55.0, "mana": 0.0, "damage": 9.0, "attack_speed": 0.65}, Color("55a630"))
+	goblin.position = position
+	add_child(goblin)
+	goblins.append(goblin)
+
+func preferred_spawn_edge() -> int:
+	if travel_direction.length_squared() == 0.0:
+		return spawn_rng.randi_range(0, 3)
+	if absf(travel_direction.x) > absf(travel_direction.y):
+		return 1 if travel_direction.x > 0.0 else 0
+	return 3 if travel_direction.y > 0.0 else 2
+
+func toggle_pause() -> void:
+	game_paused = not game_paused
+	pause_menu.visible = game_paused
+
+func restart_game() -> void:
+	game_paused = false
+	get_tree().reload_current_scene()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if player == null or player.health <= 0.0 or goblins.is_empty(): return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		toggle_pause()
+		get_viewport().set_input_as_handled()
+		return
+	if game_paused: return
+	if player == null or player.health <= 0.0: return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		attack()
+		attack(get_global_mouse_position())
 	if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE:
-		attack()
+		attack(get_global_mouse_position())
 
-func nearest_target(max_range: float) -> Entity:
-	var target: Entity
-	for goblin in goblins:
-		if not is_instance_valid(goblin): continue
-		if player.position.distance_to(goblin.position) <= max_range and (target == null or player.position.distance_to(goblin.position) < player.position.distance_to(target.position)):
-			target = goblin
-	return target
-
-func attack() -> void:
+func attack(aim_position: Vector2, allow_buffer := true) -> void:
 	var attack_data: Dictionary = ATTACKS[selected_class]
 	var now := Time.get_ticks_msec() / 1000.0
-	if now - last_attack_time < 1.0 / player.attack_speed: return
+	var cooldown := 1.0 / player.attack_speed
+	if now - last_attack_time < cooldown:
+		if allow_buffer and cooldown - (now - last_attack_time) <= ATTACK_INPUT_BUFFER:
+			buffered_attack_position = aim_position
+			has_buffered_attack = true
+		return
+	has_buffered_attack = false
 	if player.mana < attack_data.mana_cost:
 		status.text = "Not enough Mana for %s." % attack_data.name
 		return
-	var target := nearest_target(attack_data.range)
-	if target == null:
-		status.text = "No target in %d range." % attack_data.range
-		return
+	var aim_direction := player.position.direction_to(aim_position)
+	if aim_direction == Vector2.ZERO: aim_direction = Vector2.RIGHT
+	var aim_end := player.position + aim_direction * minf(player.position.distance_to(aim_position), attack_data.range)
 	last_attack_time = now
 	player.mana -= attack_data.mana_cost
 	if attack_data.kind == "melee":
-		var angle := player.position.angle_to_point(target.position)
+		var angle := player.position.angle_to_point(aim_position)
 		visual_effects.append({"kind": "slash", "position": player.position, "angle": angle, "color": attack_data.color, "radius": attack_data.range, "remaining": attack_data.impact_delay, "duration": attack_data.impact_delay})
-		pending_hits.append({"remaining": attack_data.impact_delay, "target": target, "origin": player.position, "angle": angle, "damage": player.damage, "attack": attack_data})
+		pending_hits.append({"remaining": attack_data.impact_delay, "origin": player.position, "angle": angle, "damage": player.damage, "attack": attack_data})
 		status.text = "Warrior winds up Cleave."
 	else:
-		projectiles.append({"position": player.position, "target": target, "attack": attack_data})
+		projectiles.append({"position": player.position, "aim_end": aim_end, "attack": attack_data})
 		status.text = "%s casts %s." % [selected_class, attack_data.name]
 
 func resolve_hit(target: Entity, amount: float, attack_data: Dictionary, impact_position: Vector2, attack_angle := 0.0) -> void:
@@ -197,15 +340,13 @@ func apply_damage(target: Entity, amount: float) -> void:
 	if target.health <= 0.0:
 		goblins.erase(target)
 		target.queue_free()
-		if goblins.is_empty(): status.text = "Victory! Every goblin is defeated. Press R to choose a class again."
 
 func update_attacks(delta: float) -> void:
 	for hit in pending_hits.duplicate():
 		hit.remaining -= delta
 		if hit.remaining <= 0.0:
 			pending_hits.erase(hit)
-			if is_instance_valid(hit.target):
-				resolve_hit(hit.target, hit.damage, hit.attack, hit.origin, hit.angle)
+			resolve_hit(null, hit.damage, hit.attack, hit.origin, hit.angle)
 	for hit in pending_enemy_hits.duplicate():
 		hit.remaining -= delta
 		if hit.remaining <= 0.0:
@@ -214,14 +355,20 @@ func update_attacks(delta: float) -> void:
 				hit.target.hit(hit.damage)
 				status.text = "%s hits you for %d damage!" % [hit.source_name, hit.damage]
 	for projectile in projectiles.duplicate():
-		if not is_instance_valid(projectile.target):
-			projectiles.erase(projectile)
-			continue
-		var target_position: Vector2 = projectile.target.position
+		var target_position: Vector2 = projectile.aim_end
 		projectile.position = projectile.position.move_toward(target_position, projectile.attack.projectile_speed * delta)
-		if projectile.position.distance_to(target_position) < 2.0:
+		var hit_target: Entity
+		for goblin in goblins:
+			if is_instance_valid(goblin) and projectile.position.distance_to(goblin.position) <= goblin.radius + 8.0:
+				hit_target = goblin
+				break
+		if hit_target != null:
 			projectiles.erase(projectile)
-			resolve_hit(projectile.target, player.damage, projectile.attack, target_position)
+			resolve_hit(hit_target, player.damage, projectile.attack, projectile.position)
+		elif projectile.position.distance_to(target_position) < 2.0:
+			projectiles.erase(projectile)
+			if projectile.attack.kind == "aoe_projectile":
+				resolve_hit(null, player.damage, projectile.attack, target_position)
 	for effect in visual_effects.duplicate():
 		effect.remaining -= delta
 		if effect.remaining <= 0.0: visual_effects.erase(effect)
@@ -229,10 +376,35 @@ func update_attacks(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	if player == null: return
-	if Input.is_key_pressed(KEY_R) and (goblins.is_empty() or player.health <= 0.0):
+	if game_paused: return
+	if Input.is_key_pressed(KEY_R) and player.health <= 0.0:
 		get_tree().reload_current_scene()
 		return
 	player.restore_mana(delta)
+	if has_buffered_attack:
+		if player.health <= 0.0:
+			has_buffered_attack = false
+		elif Time.get_ticks_msec() / 1000.0 - last_attack_time >= 1.0 / player.attack_speed:
+			var buffered_aim := buffered_attack_position
+			has_buffered_attack = false
+			attack(buffered_aim, false)
+	if player.health > 0.0 and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		attack(get_global_mouse_position())
+	hp_bar.max_value = player.max_health
+	hp_bar.value = player.health
+	mp_bar.visible = player.max_mana > 0.0
+	if mp_bar.visible:
+		mp_bar.max_value = player.max_mana
+		mp_bar.value = player.mana
+	if player.health > 0.0:
+		var movement := Vector2(
+			float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)),
+			float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W))
+		)
+		if movement.length_squared() > 0.0:
+			travel_direction = movement.normalized()
+			player.position += travel_direction * PLAYER_MOVE_SPEED * delta
+		update_world_enemies()
 	update_attacks(delta)
 	for goblin in goblins:
 		var direction := goblin.position.direction_to(player.position)
@@ -247,5 +419,3 @@ func _process(delta: float) -> void:
 				pending_enemy_hits.append({"remaining": impact_delay, "source_name": goblin.entity_name, "target": player, "damage": goblin.damage})
 	if player.health <= 0.0:
 		status.text = "Defeated. Press R to try another class."
-	var mana_text := "" if player.max_mana <= 0.0 else "   MP %d/%d" % [player.mana, player.max_mana]
-	stats.text = "%s\nHP %d/%d%s   Damage %d   Speed %.1f" % [selected_class, player.health, player.max_health, mana_text, player.damage, player.attack_speed]
