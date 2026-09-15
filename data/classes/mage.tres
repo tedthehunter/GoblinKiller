@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="CharacterStats" load_steps=2 format=3]
+[ext_resource type="Script" path="res://resources/character_stats.gd" id="1"]
+[resource]
+script = ExtResource("1")
+display_name = "Mage"
+max_health = 80.0
+max_mana = 100.0
+damage = 40.0
+attack_speed = 0.75
+color = Color(0.61, 0.36, 0.90, 1)
