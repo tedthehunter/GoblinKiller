@@ -52,10 +52,16 @@ func is_walkable(point: Vector2, radius: float) -> bool:
 func get_walkable_cells(cell_size: int) -> Array[Vector2i]:
 	var cells: Dictionary = {}
 	for area in get_walkable_areas():
-		for x in range(int(area.position.x), int(area.end.x), cell_size):
-			for y in range(int(area.position.y), int(area.end.y), cell_size):
-				var cell := Vector2i(floori(float(x) / cell_size), floori(float(y) / cell_size))
-				if is_walkable(Vector2(x + cell_size * 0.5, y + cell_size * 0.5), 1.0): cells[cell] = true
+		# Cell coordinates must be based on the same global origin used by MapDiscovery.
+		# Starting at area.position shifted fog tiles whenever a room began off-grid.
+		var first_x := floori(area.position.x / cell_size)
+		var last_x := ceili(area.end.x / cell_size)
+		var first_y := floori(area.position.y / cell_size)
+		var last_y := ceili(area.end.y / cell_size)
+		for x in range(first_x, last_x):
+			for y in range(first_y, last_y):
+				var cell := Vector2i(x, y)
+				if is_walkable(Vector2(x * cell_size + cell_size * 0.5, y * cell_size + cell_size * 0.5), 1.0): cells[cell] = true
 	var result: Array[Vector2i] = []
 	for cell in cells: result.append(cell)
 	return result
