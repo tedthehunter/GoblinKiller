@@ -5,6 +5,7 @@ const GOBLIN_SCENE := preload("res://scenes/actors/goblin.tscn")
 const LEVEL_SCENE := preload("res://scenes/world/dungeon_level.tscn")
 const HUD_SCENE := preload("res://scenes/ui/hud.tscn")
 const COMBAT_VISUALS_SCENE := preload("res://scenes/combat_visuals.tscn")
+const FOG_OF_WAR_SCENE := preload("res://scenes/world/fog_of_war.tscn")
 
 var player: Player
 var level: DungeonLevel
@@ -20,6 +21,8 @@ var effects: Array[Dictionary] = []
 var game_paused := false
 var completed := false
 var combat_visuals: CombatVisuals
+var fog_of_war: FogOfWar
+var discoveries: Dictionary = {}
 
 func _ready() -> void:
 	hud = HUD_SCENE.instantiate()
@@ -27,6 +30,8 @@ func _ready() -> void:
 	hud.class_selected.connect(start_run)
 	combat_visuals = COMBAT_VISUALS_SCENE.instantiate()
 	add_child(combat_visuals)
+	fog_of_war = FOG_OF_WAR_SCENE.instantiate()
+	add_child(fog_of_war)
 	queue_redraw()
 
 func start_run(stats: CharacterStats) -> void:
@@ -72,6 +77,9 @@ func load_floor(number: int) -> void:
 	move_child(level, 0)
 	player.position = Vector2(180, 295)
 	hud.set_floor(number)
+	if not discoveries.has(number): discoveries[number] = MapDiscovery.new()
+	fog_of_war.configure(level, discoveries[number])
+	hud.configure_minimap(level, discoveries[number], player)
 
 func on_room_entered(room_id: String) -> void:
 	var room := level.room_for_id(room_id)
@@ -158,6 +166,7 @@ func _process(delta: float) -> void:
 	)
 	player.move_in_level(movement, delta, level)
 	level.update_player_location()
+	fog_of_war.update_visibility(player.position)
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT): try_attack(get_global_mouse_position())
 	if buffered_attack and Time.get_ticks_msec() / 1000.0 - last_attack_time >= 1.0 / player.stats.attack_speed: try_attack(buffered_attack_position, false)
 	for hit in delayed_hits.duplicate():

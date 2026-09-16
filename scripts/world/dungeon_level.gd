@@ -49,6 +49,30 @@ func is_walkable(point: Vector2, radius: float) -> bool:
 		if corridor.grow(-radius).has_point(point): return true
 	return false
 
+func get_walkable_cells(cell_size: int) -> Array[Vector2i]:
+	var cells: Dictionary = {}
+	for area in get_walkable_areas():
+		for x in range(int(area.position.x), int(area.end.x), cell_size):
+			for y in range(int(area.position.y), int(area.end.y), cell_size):
+				var cell := Vector2i(floori(float(x) / cell_size), floori(float(y) / cell_size))
+				if is_walkable(Vector2(x + cell_size * 0.5, y + cell_size * 0.5), 1.0): cells[cell] = true
+	var result: Array[Vector2i] = []
+	for cell in cells: result.append(cell)
+	return result
+
+func get_walkable_areas() -> Array[Rect2]:
+	var areas: Array[Rect2] = []
+	for room in rooms: areas.append(room.rect)
+	for corridor in corridors: areas.append(corridor)
+	return areas
+
+func has_line_of_sight(from: Vector2, to: Vector2) -> bool:
+	var distance := from.distance_to(to)
+	var steps := maxi(1, ceili(distance / 8.0))
+	for step in range(1, steps + 1):
+		if not is_walkable(from.lerp(to, float(step) / steps), 1.0): return false
+	return true
+
 func update_player_location() -> void:
 	if player == null: return
 	for room in rooms:

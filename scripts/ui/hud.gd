@@ -9,6 +9,7 @@ var mp_bar: ProgressBar
 var class_box: VBoxContainer
 var pause_menu: PanelContainer
 var floor_label: Label
+var minimap: MiniMap
 
 func _ready() -> void:
 	status = make_label(Vector2(24, 50), 16)
@@ -43,6 +44,8 @@ func _ready() -> void:
 	pause_menu.add_child(box)
 	pause_menu.hide()
 	add_child(pause_menu)
+	minimap = preload("res://scenes/ui/minimap.tscn").instantiate()
+	add_child(minimap)
 	set_status("Select a class to begin your descent.")
 
 func select_class(stats: CharacterStats) -> void:
@@ -79,3 +82,7 @@ func update_player(player: Player) -> void:
 	mp_bar.visible = player.stats.max_mana > 0.0
 	mp_bar.max_value = player.stats.max_mana
 	mp_bar.value = player.mana
+	minimap.refresh()
+
+func configure_minimap(level: DungeonLevel, discovery: MapDiscovery, player: Player) -> void:
+	minimap.configure(level, discovery, player)
