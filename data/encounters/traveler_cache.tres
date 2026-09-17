@@ -1,0 +1,7 @@
+[gd_resource type="Resource" script_class="EncounterDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://resources/encounter_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+title = "Abandoned Cache"
+description = "A battered satchel lies beside the corridor wall."
+options = [{"label":"Search for supplies", "effect":"heal", "amount":20.0}, {"label":"Keep moving", "effect":"none", "amount":0.0}]

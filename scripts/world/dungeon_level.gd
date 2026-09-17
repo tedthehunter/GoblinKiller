@@ -126,6 +126,9 @@ func _draw() -> void:
 	var color := Color("f6bd60") if floor_number == 1 else Color("ffd166")
 	draw_rect(exit_rect, color, true)
 	draw_string(ThemeDB.fallback_font, exit_rect.position + Vector2(-35, -10), label, HORIZONTAL_ALIGNMENT_CENTER, exit_rect.size.x + 70, 14, color)
+	for encounter in location_encounters:
+		draw_circle(encounter.position, 12.0, Color("8ecae6"))
+		draw_arc(encounter.position, 16.0, 0.0, TAU, 16, Color("d9f0ff"), 2.0)
 
 func draw_shared_doorways() -> void:
 	# Corridors deliberately overlap rooms by more than an actor radius. Remove the two

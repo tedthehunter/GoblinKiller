@@ -10,6 +10,7 @@ var class_box: VBoxContainer
 var pause_menu: PanelContainer
 var floor_label: Label
 var minimap: MiniMap
+var encounter_dialog: EncounterDialog
 
 func _ready() -> void:
 	status = make_label(Vector2(24, 50), 16)
@@ -46,6 +47,8 @@ func _ready() -> void:
 	add_child(pause_menu)
 	minimap = preload("res://scenes/ui/minimap.tscn").instantiate()
 	add_child(minimap)
+	encounter_dialog = preload("res://scenes/ui/encounter_dialog.tscn").instantiate()
+	add_child(encounter_dialog)
 	set_status("Select a class to begin your descent.")
 
 func select_class(stats: CharacterStats) -> void:
@@ -86,3 +89,6 @@ func update_player(player: Player) -> void:
 
 func configure_minimap(level: DungeonLevel, discovery: MapDiscovery, player: Player) -> void:
 	minimap.configure(level, discovery, player)
+
+func present_encounter(encounter: EncounterDefinition) -> void:
+	encounter_dialog.present(encounter)

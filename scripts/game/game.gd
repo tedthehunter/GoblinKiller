@@ -23,11 +23,17 @@ var completed := false
 var combat_visuals: CombatVisuals
 var fog_of_war: FogOfWar
 var discoveries: Dictionary = {}
+var encounter_active := false
+var triggered_encounters: Dictionary = {}
+var travel_progress := 0.0
+var previous_player_position := Vector2.ZERO
+var encounter_rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	hud = HUD_SCENE.instantiate()
 	add_child(hud)
 	hud.class_selected.connect(start_run)
+	hud.encounter_dialog.option_chosen.connect(resolve_encounter)
 	combat_visuals = COMBAT_VISUALS_SCENE.instantiate()
 	add_child(combat_visuals)
 	fog_of_war = FOG_OF_WAR_SCENE.instantiate()
@@ -51,6 +57,7 @@ func start_run(stats: CharacterStats) -> void:
 	combat_visuals.projectiles = projectiles
 	combat_visuals.refresh(attack)
 	load_floor(1)
+	previous_player_position = player.position
 	hud.set_status("WASD moves. Click or Space attacks. Reach the stairs.")
 
 func make_attack(selected_class: String) -> AttackDefinition:
@@ -76,6 +83,7 @@ func load_floor(number: int) -> void:
 	add_child(level)
 	move_child(level, 0)
 	player.position = Vector2(180, 295)
+	previous_player_position = player.position
 	hud.set_floor(number)
 	if not discoveries.has(number): discoveries[number] = MapDiscovery.new()
 	fog_of_war.configure(level, discoveries[number])
@@ -115,6 +123,38 @@ func on_exit_reached() -> void:
 
 func on_player_died(_value: Character) -> void:
 	hud.set_status("Defeated. Press R to choose another class.")
+
+func trigger_encounter(resource_path: String) -> void:
+	if encounter_active: return
+	var encounter: EncounterDefinition = load(resource_path)
+	encounter_active = true
+	hud.present_encounter(encounter)
+
+func resolve_encounter(option: Dictionary) -> void:
+	encounter_active = false
+	var amount: float = option.get("amount", 0.0)
+	if option.effect == "heal":
+		player.health = minf(player.stats.max_health, player.health + amount)
+		hud.set_status("You recover %d health." % amount)
+	elif option.effect == "mana":
+		player.mana = minf(player.stats.max_mana, player.mana + amount)
+		hud.set_status("You recover %d mana." % amount)
+	else:
+		hud.set_status("You continue deeper into the dungeon.")
+
+func update_noncombat_encounters() -> void:
+	if encounter_active: return
+	for encounter in level.location_encounters:
+		var key := "%d_%s" % [level.floor_number, encounter.id]
+		if not triggered_encounters.has(key) and player.position.distance_to(encounter.position) < 36.0:
+			triggered_encounters[key] = true
+			trigger_encounter(encounter.resource)
+			return
+	travel_progress += player.position.distance_to(previous_player_position)
+	previous_player_position = player.position
+	if travel_progress >= 480.0:
+		travel_progress = 0.0
+		if encounter_rng.randf() <= 0.55: trigger_encounter("res://data/encounters/traveler_cache.tres")
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
@@ -157,7 +197,7 @@ func resolve_projectile(position: Vector2, target: Goblin) -> void:
 	elif target != null: target.take_damage(player.stats.damage)
 
 func _process(delta: float) -> void:
-	if player == null or game_paused or completed: return
+	if player == null or game_paused or completed or encounter_active: return
 	if player.health <= 0.0: return
 	player.restore_mana(delta)
 	var movement := Vector2(
@@ -165,6 +205,8 @@ func _process(delta: float) -> void:
 		float(Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN)) - float(Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP))
 	)
 	player.move_in_level(movement, delta, level)
+	update_noncombat_encounters()
+	if encounter_active: return
 	level.update_player_location()
 	fog_of_war.update_visibility(player.position)
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT): try_attack(get_global_mouse_position())

@@ -1,0 +1,7 @@
+[gd_resource type="Resource" script_class="EncounterDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://resources/encounter_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+title = "Arcane Echo"
+description = "A quiet pulse of magic follows your footsteps."
+options = [{"label":"Draw in the energy", "effect":"mana", "amount":30.0}, {"label":"Ignore the echo", "effect":"none", "amount":0.0}]

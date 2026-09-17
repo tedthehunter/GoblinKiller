@@ -1,0 +1,7 @@
+[gd_resource type="Resource" script_class="EncounterDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://resources/encounter_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+title = "Ancient Shrine"
+description = "A cold blue flame burns in a forgotten shrine."
+options = [{"label":"Pray for vigor", "effect":"heal", "amount":35.0}, {"label":"Leave it alone", "effect":"none", "amount":0.0}]
