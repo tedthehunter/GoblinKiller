@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="PickupDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://resources/pickup_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+display_name = "Mana Tonic"
+description = "Restores 45 mana."
+color = Color(0.2, 0.5, 0.95, 1)
+mana_restore = 45.0

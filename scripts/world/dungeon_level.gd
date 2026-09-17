@@ -11,6 +11,7 @@ var entered_rooms := {}
 var exit_rect := Rect2()
 var player: Player
 var location_encounters: Array[Dictionary] = []
+var pickup_spawns: Array[Dictionary] = []
 
 func setup(number: int) -> void:
 	floor_number = number
@@ -23,6 +24,7 @@ func setup(number: int) -> void:
 		corridors = [Rect2(290, 245, 270, 100), Rect2(770, 245, 250, 100)]
 		exit_rect = Rect2(1165, 245, 56, 100)
 		location_encounters = [{"id":"shrine", "position":Vector2(650, 190), "resource":"res://data/encounters/ancient_shrine.tres"}]
+		pickup_spawns = [{"position":Vector2(245, 350), "resource":"res://data/items/health_potion.tres"}, {"position":Vector2(715, 290), "resource":"res://data/items/iron_blade.tres"}]
 	else:
 		rooms = [
 			{"id": "entry", "rect": Rect2(50, 150, 310, 260), "spawns": 3},
@@ -32,6 +34,7 @@ func setup(number: int) -> void:
 		corridors = [Rect2(290, 240, 270, 90), Rect2(760, 240, 280, 90)]
 		exit_rect = Rect2(1095, 225, 80, 100)
 		location_encounters = [{"id":"echo", "position":Vector2(660, 155), "resource":"res://data/encounters/arcane_echo.tres"}]
+		pickup_spawns = [{"position":Vector2(1100, 330), "resource":"res://data/items/mana_tonic.tres"}]
 	queue_redraw()
 
 func set_player(value: Player) -> void:

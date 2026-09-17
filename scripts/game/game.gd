@@ -6,6 +6,7 @@ const LEVEL_SCENE := preload("res://scenes/world/dungeon_level.tscn")
 const HUD_SCENE := preload("res://scenes/ui/hud.tscn")
 const COMBAT_VISUALS_SCENE := preload("res://scenes/combat_visuals.tscn")
 const FOG_OF_WAR_SCENE := preload("res://scenes/world/fog_of_war.tscn")
+const PICKUP_SCENE := preload("res://scenes/world/pickup.tscn")
 
 var player: Player
 var level: DungeonLevel
@@ -28,6 +29,8 @@ var triggered_encounters: Dictionary = {}
 var travel_progress := 0.0
 var previous_player_position := Vector2.ZERO
 var encounter_rng := RandomNumberGenerator.new()
+var pickups: Array[WorldPickup] = []
+var inventory: Array[PickupDefinition] = []
 
 func _ready() -> void:
 	hud = HUD_SCENE.instantiate()
@@ -74,6 +77,8 @@ func load_floor(number: int) -> void:
 	if level != null: level.queue_free()
 	for goblin in goblins: if is_instance_valid(goblin): goblin.queue_free()
 	goblins.clear()
+	for pickup in pickups: if is_instance_valid(pickup): pickup.queue_free()
+	pickups.clear()
 	projectiles.clear(); delayed_hits.clear(); effects.clear()
 	level = LEVEL_SCENE.instantiate()
 	level.setup(number)
@@ -88,6 +93,43 @@ func load_floor(number: int) -> void:
 	if not discoveries.has(number): discoveries[number] = MapDiscovery.new()
 	fog_of_war.configure(level, discoveries[number])
 	hud.configure_minimap(level, discoveries[number], player)
+	spawn_floor_pickups()
+
+func spawn_floor_pickups() -> void:
+	for spawn in level.pickup_spawns:
+		var pickup: WorldPickup = PICKUP_SCENE.instantiate()
+		pickup.configure(load(spawn.resource))
+		pickup.position = spawn.position
+		add_child(pickup)
+		pickups.append(pickup)
+
+func collect_pickups() -> void:
+	for pickup in pickups.duplicate():
+		if player.position.distance_to(pickup.position) > 28.0: continue
+		pickups.erase(pickup)
+		if pickup.definition.kind == "gear":
+			player.stats.max_health += pickup.definition.health_bonus
+			player.health += pickup.definition.health_bonus
+			player.stats.damage += pickup.definition.damage_bonus
+			player.stats.attack_speed += pickup.definition.attack_speed_bonus
+			hud.set_status("Equipped %s." % pickup.definition.display_name)
+		else:
+			inventory.append(pickup.definition)
+			hud.set_status("Picked up %s. Press E to use it." % pickup.definition.display_name)
+		pickup.queue_free()
+	update_item_prompt()
+
+func use_item() -> void:
+	if inventory.is_empty(): return
+	var item: PickupDefinition = inventory.pop_front()
+	player.health = minf(player.stats.max_health, player.health + item.health_restore)
+	player.mana = minf(player.stats.max_mana, player.mana + item.mana_restore)
+	hud.set_status("Used %s." % item.display_name)
+	update_item_prompt()
+
+func update_item_prompt() -> void:
+	if inventory.is_empty(): hud.set_item_prompt("")
+	else: hud.set_item_prompt("E: Use %s" % inventory[0].display_name)
 
 func on_room_entered(room_id: String) -> void:
 	var room := level.room_for_id(room_id)
@@ -164,6 +206,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R and (completed or (player != null and player.health <= 0.0)):
 		get_tree().reload_current_scene(); return
 	if game_paused or completed or player == null or player.health <= 0.0: return
+	if event is InputEventKey and event.pressed and event.keycode == KEY_E: use_item(); return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT: try_attack(get_global_mouse_position())
 	if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE: try_attack(get_global_mouse_position())
 
@@ -205,6 +248,7 @@ func _process(delta: float) -> void:
 		float(Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN)) - float(Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP))
 	)
 	player.move_in_level(movement, delta, level)
+	collect_pickups()
 	update_noncombat_encounters()
 	if encounter_active: return
 	level.update_player_location()

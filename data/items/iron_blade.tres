@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="PickupDefinition" load_steps=2 format=3 uid="uid://6x8r6vdkwlhg"]
+
+[ext_resource type="Script" path="res://resources/pickup_definition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+kind = "gear"
+display_name = "Iron Blade"
+description = "Automatically equipped. +8 damage."
+color = Color(0.95, 0.78, 0.3, 1)
+health_restore = 0.0
+mana_restore = 0.0
+health_bonus = 0.0
+damage_bonus = 99.0
+attack_speed_bonus = 0.0

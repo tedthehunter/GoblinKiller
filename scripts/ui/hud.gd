@@ -11,6 +11,7 @@ var pause_menu: PanelContainer
 var floor_label: Label
 var minimap: MiniMap
 var encounter_dialog: EncounterDialog
+var item_prompt: Label
 
 func _ready() -> void:
 	status = make_label(Vector2(24, 50), 16)
@@ -49,6 +50,9 @@ func _ready() -> void:
 	add_child(minimap)
 	encounter_dialog = preload("res://scenes/ui/encounter_dialog.tscn").instantiate()
 	add_child(encounter_dialog)
+	item_prompt = make_label(Vector2(300, 500), 16)
+	item_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	item_prompt.size = Vector2(360, 28)
 	set_status("Select a class to begin your descent.")
 
 func select_class(stats: CharacterStats) -> void:
@@ -92,3 +96,6 @@ func configure_minimap(level: DungeonLevel, discovery: MapDiscovery, player: Pla
 
 func present_encounter(encounter: EncounterDefinition) -> void:
 	encounter_dialog.present(encounter)
+
+func set_item_prompt(text: String) -> void:
+	item_prompt.text = text
