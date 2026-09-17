@@ -10,6 +10,7 @@ var corridors: Array[Rect2] = []
 var entered_rooms := {}
 var exit_rect := Rect2()
 var player: Player
+var location_encounters: Array[Dictionary] = []
 
 func setup(number: int) -> void:
 	floor_number = number
@@ -21,6 +22,7 @@ func setup(number: int) -> void:
 		]
 		corridors = [Rect2(290, 245, 270, 100), Rect2(770, 245, 250, 100)]
 		exit_rect = Rect2(1165, 245, 56, 100)
+		location_encounters = [{"id":"shrine", "position":Vector2(650, 190), "resource":"res://data/encounters/ancient_shrine.tres"}]
 	else:
 		rooms = [
 			{"id": "entry", "rect": Rect2(50, 150, 310, 260), "spawns": 3},
@@ -29,6 +31,7 @@ func setup(number: int) -> void:
 		]
 		corridors = [Rect2(290, 240, 270, 90), Rect2(760, 240, 280, 90)]
 		exit_rect = Rect2(1095, 225, 80, 100)
+		location_encounters = [{"id":"echo", "position":Vector2(660, 155), "resource":"res://data/encounters/arcane_echo.tres"}]
 	queue_redraw()
 
 func set_player(value: Player) -> void:
@@ -61,10 +64,23 @@ func get_walkable_cells(cell_size: int) -> Array[Vector2i]:
 		for x in range(first_x, last_x):
 			for y in range(first_y, last_y):
 				var cell := Vector2i(x, y)
-				if is_walkable(Vector2(x * cell_size + cell_size * 0.5, y * cell_size + cell_size * 0.5), 1.0): cells[cell] = true
+				# Include every cell that touches a floor shape. Testing only a cell center
+				# leaves narrow room-edge and corner strips permanently outside the fog.
+				if area.intersects(get_cell_rect(cell, cell_size)): cells[cell] = true
 	var result: Array[Vector2i] = []
 	for cell in cells: result.append(cell)
 	return result
+
+func get_cell_rect(cell: Vector2i, cell_size: int) -> Rect2:
+	return Rect2(Vector2(cell.x * cell_size, cell.y * cell_size), Vector2.ONE * cell_size)
+
+func get_walkable_cell_sample(cell: Vector2i, cell_size: int) -> Vector2:
+	var cell_rect := get_cell_rect(cell, cell_size)
+	for area in get_walkable_areas():
+		var overlap := area.intersection(cell_rect)
+		if overlap.size.x > 0.0 and overlap.size.y > 0.0:
+			return overlap.get_center()
+	return cell_rect.get_center()
 
 func get_walkable_areas() -> Array[Rect2]:
 	var areas: Array[Rect2] = []
